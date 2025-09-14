@@ -56,7 +56,7 @@ The generated Excel file contains four comprehensive sheets:
 
 ### Resources Sheet (Detailed Container Data)
 - **Namespace**: Pod namespace
-- **Pod**: Pod name  
+- **Pod**: Pod name
 - **Node**: Host node IP
 - **Container**: Container name
 - **Status**: Pod status (Running, Pending, etc.)
@@ -96,7 +96,7 @@ The generated Excel file contains four comprehensive sheets:
 - **Auto-filter**: Easy sorting and filtering on Resources sheet
 - **Conditional formatting**: Color-coded efficiency percentages
   - Red (≥80%): High resource utilization
-  - Yellow (60-79%): Medium utilization  
+  - Yellow (60-79%): Medium utilization
   - Teal (40-59%): Low utilization
   - Light Green (<40%): Very low utilization
 - **Progress indicators**: Shows processing progress for large clusters
@@ -240,3 +240,5 @@ docker run --rm -v $(PWD):/workspace -v ~/.kube:/root/.kube \
 
 This project is open source. See the original blog post for more details:
 https://medium.com/@zhimin.wen/pod-resource-spreadsheet-calculator-22fc5c6173b9
+
+Since pull requests were never answered, this repo is no longer linked to the original or any other fork

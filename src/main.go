@@ -934,6 +934,7 @@ func calculatePercentage(part, total int64) string {
 	}
 	return fmt.Sprintf("%.1f%%", float64(part)/float64(total)*100)
 }
+
 // Data Science Insights Sheet
 func createInsightsSheet(f *excelize.File, namespaceTotals map[string]struct {
 	reqCPU, limCPU int64
@@ -943,14 +944,14 @@ func createInsightsSheet(f *excelize.File, namespaceTotals map[string]struct {
 	reqCPU, limCPU int64
 	reqMem, limMem int64
 }, containerCount int, sheetName string) error {
-	
+
 	_, err := f.NewSheet(sheetName)
 	if err != nil {
 		return fmt.Errorf("failed to create insights sheet: %w", err)
 	}
 
 	row := 1
-	
+
 	// Title
 	f.SetCellValue(sheetName, "A1", "📊 KUBERNETES RESOURCE INSIGHTS")
 	f.SetCellStyle(sheetName, "A1", "A1", getTitleStyle(f))
@@ -963,30 +964,30 @@ func createInsightsSheet(f *excelize.File, namespaceTotals map[string]struct {
 
 	var totalReqCPU, totalLimCPU, totalReqMem, totalLimMem int64
 	var overProvisionedNS, underProvisionedNS, balancedNS int
-	
+
 	for _, totals := range namespaceTotals {
 		totalReqCPU += totals.reqCPU
 		totalLimCPU += totals.limCPU
 		totalReqMem += totals.reqMem
 		totalLimMem += totals.limMem
-		
+
 		// Efficiency classification
 		cpuEff := float64(totals.reqCPU) / float64(totals.limCPU) * 100
 		memEff := float64(totals.reqMem) / float64(totals.limMem) * 100
 		avgEff := (cpuEff + memEff) / 2
-		
-		if avgEff < 50 { 
-			overProvisionedNS++ 
-		} else if avgEff > 80 { 
-			underProvisionedNS++ 
-		} else { 
-			balancedNS++ 
+
+		if avgEff < 50 {
+			overProvisionedNS++
+		} else if avgEff > 80 {
+			underProvisionedNS++
+		} else {
+			balancedNS++
 		}
 	}
 
 	clusterCPUEff := float64(totalReqCPU) / float64(totalLimCPU) * 100
 	clusterMemEff := float64(totalReqMem) / float64(totalLimMem) * 100
-	
+
 	insights := [][]interface{}{
 		{"Cluster CPU Efficiency", fmt.Sprintf("%.1f%%", clusterCPUEff), getEfficiencyRating(clusterCPUEff)},
 		{"Cluster Memory Efficiency", fmt.Sprintf("%.1f%%", clusterMemEff), getEfficiencyRating(clusterMemEff)},
@@ -1041,7 +1042,7 @@ func createInsightsSheet(f *excelize.File, namespaceTotals map[string]struct {
 	row += 2
 
 	recommendations := generateRecommendations(clusterCPUEff, clusterMemEff, overProvisionedNS, underProvisionedNS, getBalanceScoreValue(podCounts))
-	
+
 	for _, rec := range recommendations {
 		f.SetCellValue(sheetName, fmt.Sprintf("A%d", row), "•")
 		f.SetCellValue(sheetName, fmt.Sprintf("B%d", row), rec)
@@ -1058,14 +1059,20 @@ func createInsightsSheet(f *excelize.File, namespaceTotals map[string]struct {
 
 // Helper functions for data science calculations
 func average(values []int) float64 {
-	if len(values) == 0 { return 0 }
+	if len(values) == 0 {
+		return 0
+	}
 	sum := 0
-	for _, v := range values { sum += v }
+	for _, v := range values {
+		sum += v
+	}
 	return float64(sum) / float64(len(values))
 }
 
 func stdDev(values []int) float64 {
-	if len(values) == 0 { return 0 }
+	if len(values) == 0 {
+		return 0
+	}
 	avg := average(values)
 	var sum float64
 	for _, v := range values {
@@ -1075,16 +1082,28 @@ func stdDev(values []int) float64 {
 }
 
 func max(values []int) int {
-	if len(values) == 0 { return 0 }
+	if len(values) == 0 {
+		return 0
+	}
 	max := values[0]
-	for _, v := range values { if v > max { max = v } }
+	for _, v := range values {
+		if v > max {
+			max = v
+		}
+	}
 	return max
 }
 
 func min(values []int) int {
-	if len(values) == 0 { return 0 }
+	if len(values) == 0 {
+		return 0
+	}
 	min := values[0]
-	for _, v := range values { if v < min { min = v } }
+	for _, v := range values {
+		if v < min {
+			min = v
+		}
+	}
 	return min
 }
 
@@ -1093,24 +1112,34 @@ func getBalanceScore(values []int) string {
 }
 
 func getBalanceScoreValue(values []int) float64 {
-	if len(values) <= 1 { return 100 }
+	if len(values) <= 1 {
+		return 100
+	}
 	std := stdDev(values)
 	avg := average(values)
-	if avg == 0 { return 100 }
-	cv := std / avg // Coefficient of variation
-	return math.Max(0, 100 - (cv * 100)) // Lower CV = better balance
+	if avg == 0 {
+		return 100
+	}
+	cv := std / avg                  // Coefficient of variation
+	return math.Max(0, 100-(cv*100)) // Lower CV = better balance
 }
 
 func getEfficiencyRating(eff float64) string {
-	if eff >= 80 { return "⚠️ Under-provisioned" }
-	if eff >= 60 { return "✅ Well-balanced" }
-	if eff >= 40 { return "⚡ Over-provisioned" }
+	if eff >= 80 {
+		return "⚠️ Under-provisioned"
+	}
+	if eff >= 60 {
+		return "✅ Well-balanced"
+	}
+	if eff >= 40 {
+		return "⚡ Over-provisioned"
+	}
 	return "🔴 Severely over-provisioned"
 }
 
 func generateRecommendations(cpuEff, memEff float64, overProv, underProv int, balanceScore float64) []string {
 	var recs []string
-	
+
 	if cpuEff < 50 {
 		recs = append(recs, "Consider reducing CPU limits - cluster is over-provisioned")
 	}
@@ -1132,7 +1161,7 @@ func generateRecommendations(cpuEff, memEff float64, overProv, underProv int, ba
 	if len(recs) == 0 {
 		recs = append(recs, "✅ Cluster resource allocation looks well-balanced!")
 	}
-	
+
 	return recs
 }
 
