@@ -931,12 +931,16 @@ func createPodSecuritySheet(f *excelize.File, namespaces *corev1.NamespaceList, 
 		return fmt.Errorf("failed to create pod security sheet: %w", err)
 	}
 
+	// Add title and default info
+	f.SetCellValue(sheetName, "A1", "Pod Security Standards (PSS)")
+	f.SetCellValue(sheetName, "A2", "Default for unset labels: privileged (no restrictions)")
+
 	headers := []string{"Namespace", "Enforce Level", "Enforce Version", "Audit Level", "Audit Version", "Warn Level", "Warn Version"}
-	if err := f.SetSheetRow(sheetName, "A1", &headers); err != nil {
+	if err := f.SetSheetRow(sheetName, "A4", &headers); err != nil {
 		return fmt.Errorf("failed to set headers: %w", err)
 	}
 
-	row := 2
+	row := 5
 	for _, ns := range namespaces.Items {
 		labels := ns.Labels
 		data := []interface{}{
