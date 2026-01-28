@@ -69,6 +69,14 @@ The generated Excel file contains six comprehensive sheets:
 - **Limit CPU**: CPU limits (canonical format)
 - **Limit Memory (Mi)**: Memory limits in mebibytes (1 decimal)
 - **Limit Memory**: Memory limits (canonical format)
+- **Request Storage (Gi)**: Ephemeral-storage requests in gibibytes
+- **Request Storage**: Ephemeral-storage requests (canonical format)
+- **Limit Storage (Gi)**: Ephemeral-storage limits in gibibytes
+- **Limit Storage**: Ephemeral-storage limits (canonical format)
+- **Request GPU**: GPU requests (nvidia.com/gpu)
+- **Request GPU (str)**: GPU requests (canonical format)
+- **Limit GPU**: GPU limits (nvidia.com/gpu)
+- **Limit GPU (str)**: GPU limits (canonical format)
 - **CPU Efficiency %**: Request/Limit ratio for CPU
 - **Memory Efficiency %**: Request/Limit ratio for Memory
 
