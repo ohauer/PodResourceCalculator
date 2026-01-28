@@ -57,6 +57,9 @@ The generated Excel file contains six comprehensive sheets:
 ### Resources Sheet (Detailed Container Data)
 - **Namespace**: Pod namespace
 - **Pod**: Pod name
+- **Pod Age**: Time since pod creation (e.g., "5h30m15s")
+- **Restart Count**: Total container restarts in pod
+- **Last Restart**: Time since last container termination (e.g., "2h ago")
 - **Node**: Host node IP
 - **Container**: Container name
 - **Status**: Pod status (Running, Pending, etc.)
