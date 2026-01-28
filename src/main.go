@@ -933,7 +933,7 @@ func createPodSecuritySheet(f *excelize.File, namespaces *corev1.NamespaceList, 
 
 	// Add title and default info
 	f.SetCellValue(sheetName, "A1", "Pod Security Standards (PSS)")
-	f.SetCellValue(sheetName, "A2", "Default for unset labels: privileged (no restrictions)")
+	f.SetCellValue(sheetName, "A2", "Note: Unset labels use cluster default (typically privileged, but may be configured differently)")
 
 	headers := []string{"Namespace", "Enforce Level", "Enforce Version", "Audit Level", "Audit Version", "Warn Level", "Warn Version"}
 	if err := f.SetSheetRow(sheetName, "A4", &headers); err != nil {
