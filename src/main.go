@@ -226,7 +226,7 @@ func generateExcel(pods []corev1.Pod, namespaces *corev1.NamespaceList, filename
 
 	// Set headers
 	headers := []string{
-		"Namespace", "Pod", "Node", "Container", "Status", "QoS Class",
+		"Namespace", "Pod", "Pod Age", "Restart Count", "Last Restart", "Node", "Container", "Status", "QoS Class",
 		"Request CPU (m)", "Request CPU", "Request Memory (Mi)", "Request Memory",
 		"Limit CPU (m)", "Limit CPU", "Limit Memory (Mi)", "Limit Memory",
 		"Request Storage (Gi)", "Request Storage", "Limit Storage (Gi)", "Limit Storage",
@@ -239,7 +239,7 @@ func generateExcel(pods []corev1.Pod, namespaces *corev1.NamespaceList, filename
 	}
 
 	// Set auto filter
-	if err := f.AutoFilter(sheet1Name, "A2:Z2", []excelize.AutoFilterOptions{}); err != nil {
+	if err := f.AutoFilter(sheet1Name, "A2:AC2", []excelize.AutoFilterOptions{}); err != nil {
 		return fmt.Errorf("failed to set auto filter: %w", err)
 	}
 
@@ -296,6 +296,26 @@ func generateExcel(pods []corev1.Pod, namespaces *corev1.NamespaceList, filename
 		}
 		nodeTotal := nodeTotals[node]
 		nodeTotal.podCount++
+
+		// Calculate pod age
+		podAge := time.Since(pod.CreationTimestamp.Time).Round(time.Second).String()
+
+		// Calculate total restart count and last restart time for this pod
+		totalRestarts := int32(0)
+		var lastRestart time.Time
+		for _, cs := range pod.Status.ContainerStatuses {
+			totalRestarts += cs.RestartCount
+			if cs.LastTerminationState.Terminated != nil {
+				terminated := cs.LastTerminationState.Terminated.FinishedAt.Time
+				if terminated.After(lastRestart) {
+					lastRestart = terminated
+				}
+			}
+		}
+		lastRestartStr := "-"
+		if !lastRestart.IsZero() {
+			lastRestartStr = time.Since(lastRestart).Round(time.Second).String() + " ago"
+		}
 
 		for _, container := range pod.Spec.Containers {
 			reqCPU := container.Resources.Requests.Cpu()
@@ -417,6 +437,9 @@ func generateExcel(pods []corev1.Pod, namespaces *corev1.NamespaceList, filename
 			rowData := []interface{}{
 				pod.Namespace,
 				pod.Name,
+				podAge,
+				totalRestarts,
+				lastRestartStr,
 				pod.Status.HostIP,
 				container.Name,
 				string(pod.Status.Phase),
@@ -442,19 +465,19 @@ func generateExcel(pods []corev1.Pod, namespaces *corev1.NamespaceList, filename
 			}
 
 			// Format memory columns to 1 decimal place
-			hCell, _ := excelize.CoordinatesToCellName(8, row)  // Column H (Request Memory Mi)
-			lCell, _ := excelize.CoordinatesToCellName(12, row) // Column L (Limit Memory Mi)
-			f.SetCellStyle(sheet1Name, hCell, hCell, getNumberStyle(f))
+			lCell, _ := excelize.CoordinatesToCellName(12, row) // Column L (Request Memory Mi)
+			pCell, _ := excelize.CoordinatesToCellName(16, row) // Column P (Limit Memory Mi)
 			f.SetCellStyle(sheet1Name, lCell, lCell, getNumberStyle(f))
+			f.SetCellStyle(sheet1Name, pCell, pCell, getNumberStyle(f))
 
 			// Apply conditional formatting for efficiency
-			nCell, _ := excelize.CoordinatesToCellName(14, row) // CPU Efficiency
-			oCell, _ := excelize.CoordinatesToCellName(15, row) // Memory Efficiency
+			zCell, _ := excelize.CoordinatesToCellName(26, row)  // CPU Efficiency
+			aaCell, _ := excelize.CoordinatesToCellName(27, row) // Memory Efficiency
 			if cpuEfficiency != "" {
-				f.SetCellStyle(sheet1Name, nCell, nCell, getEfficiencyStyle(f, cpuEfficiency))
+				f.SetCellStyle(sheet1Name, zCell, zCell, getEfficiencyStyle(f, cpuEfficiency))
 			}
 			if memEfficiency != "" {
-				f.SetCellStyle(sheet1Name, oCell, oCell, getEfficiencyStyle(f, memEfficiency))
+				f.SetCellStyle(sheet1Name, aaCell, aaCell, getEfficiencyStyle(f, memEfficiency))
 			}
 
 			row++
@@ -562,30 +585,33 @@ func setColumnWidths(f *excelize.File, sheetName string) error {
 	columnWidths := map[string]float64{
 		"A": 15, // Namespace
 		"B": 25, // Pod
-		"C": 15, // Node
-		"D": 20, // Container
-		"E": 10, // Status
-		"F": 12, // QoS Class
-		"G": 12, // Request CPU (m)
-		"H": 15, // Request CPU
-		"I": 18, // Request Memory (Mi)
-		"J": 15, // Request Memory
-		"K": 12, // Limit CPU (m)
-		"L": 15, // Limit CPU
-		"M": 18, // Limit Memory (Mi)
-		"N": 15, // Limit Memory
-		"O": 18, // Request Storage (Gi)
-		"P": 16, // Request Storage
-		"Q": 18, // Limit Storage (Gi)
-		"R": 16, // Limit Storage
-		"S": 12, // Request GPU
-		"T": 18, // Request GPU (str)
-		"U": 12, // Limit GPU
-		"V": 18, // Limit GPU (str)
-		"W": 16, // CPU Efficiency %
-		"X": 18, // Memory Efficiency %
-		"Y": 16, // CPU % of Cluster
-		"Z": 18, // Memory % of Cluster
+		"C": 15, // Pod Age
+		"D": 14, // Restart Count
+		"E": 18, // Last Restart
+		"F": 15, // Node
+		"G": 20, // Container
+		"H": 10, // Status
+		"I": 12, // QoS Class
+		"J": 12, // Request CPU (m)
+		"K": 15, // Request CPU
+		"L": 18, // Request Memory (Mi)
+		"M": 15, // Request Memory
+		"N": 12, // Limit CPU (m)
+		"O": 15, // Limit CPU
+		"P": 18, // Limit Memory (Mi)
+		"Q": 15, // Limit Memory
+		"R": 18, // Request Storage (Gi)
+		"S": 16, // Request Storage
+		"T": 18, // Limit Storage (Gi)
+		"U": 16, // Limit Storage
+		"V": 12, // Request GPU
+		"W": 18, // Request GPU (str)
+		"X": 12, // Limit GPU
+		"Y": 18, // Limit GPU (str)
+		"Z": 16, // CPU Efficiency %
+		"AA": 18, // Memory Efficiency %
+		"AB": 16, // CPU % of Cluster
+		"AC": 18, // Memory % of Cluster
 	}
 
 	for col, width := range columnWidths {
