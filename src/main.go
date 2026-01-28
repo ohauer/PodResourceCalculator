@@ -526,8 +526,9 @@ func generateExcel(pods []corev1.Pod, namespaces *corev1.NamespaceList, nodes *c
 			// Match by node name or IP
 			for nodeKey, totals := range nodeTotals {
 				if totals.nodeName == node.Name || nodeKey == getNodeIP(&node) {
-					totals.capCPU = node.Status.Capacity.Cpu().MilliValue()
-					totals.capMem = node.Status.Capacity.Memory().Value()
+					// Use Allocatable instead of Capacity (actual resources available for pods)
+					totals.capCPU = node.Status.Allocatable.Cpu().MilliValue()
+					totals.capMem = node.Status.Allocatable.Memory().Value()
 					nodeTotals[nodeKey] = totals
 					break
 				}
@@ -793,7 +794,7 @@ func createNodeSheetFromData(f *excelize.File, nodeTotals map[string]struct {
 	}
 
 	// Set headers
-	headers := []string{"Node IP", "Pod Count", "Request CPU (cores)", "Limit CPU (cores)", "Request Memory (Mi)", "Limit Memory (Mi)", "Capacity CPU (cores)", "Capacity Memory (Mi)", "CPU Utilization %", "Memory Utilization %"}
+	headers := []string{"Node IP", "Pod Count", "Request CPU (cores)", "Limit CPU (cores)", "Request Memory (Mi)", "Limit Memory (Mi)", "Allocatable CPU (cores)", "Allocatable Memory (Mi)", "CPU Utilization %", "Memory Utilization %"}
 	if err := f.SetSheetRow(sheetName, "A1", &headers); err != nil {
 		return fmt.Errorf("failed to set headers: %w", err)
 	}
@@ -861,8 +862,8 @@ func createNodeSheetFromData(f *excelize.File, nodeTotals map[string]struct {
 		"D": 16, // Limit CPU
 		"E": 20, // Request Memory
 		"F": 18, // Limit Memory
-		"G": 20, // Capacity CPU
-		"H": 20, // Capacity Memory
+		"G": 22, // Allocatable CPU
+		"H": 22, // Allocatable Memory
 		"I": 18, // CPU Utilization %
 		"J": 20, // Memory Utilization %
 	}

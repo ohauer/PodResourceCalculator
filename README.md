@@ -97,10 +97,10 @@ The generated Excel file contains six comprehensive sheets:
 - **Limit CPU (cores)**: Total CPU limits per node
 - **Request Memory (Mi)**: Total memory requests per node
 - **Limit Memory (Mi)**: Total memory limits per node
-- **Capacity CPU (cores)**: Node CPU capacity
-- **Capacity Memory (Mi)**: Node memory capacity
-- **CPU Utilization %**: Percentage of CPU capacity requested
-- **Memory Utilization %**: Percentage of memory capacity requested
+- **Allocatable CPU (cores)**: Node allocatable CPU (capacity minus system reservations)
+- **Allocatable Memory (Mi)**: Node allocatable memory (capacity minus system reservations)
+- **CPU Utilization %**: Percentage of allocatable CPU requested
+- **Memory Utilization %**: Percentage of allocatable memory requested
 - **Capacity planning**: Understand node resource distribution and utilization
 - **Alphabetical sorting**: Nodes sorted by IP address
 
