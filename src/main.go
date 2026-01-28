@@ -226,7 +226,7 @@ func generateExcel(pods []corev1.Pod, namespaces *corev1.NamespaceList, filename
 
 	// Set headers
 	headers := []string{
-		"Namespace", "Pod", "Node", "Container", "Status",
+		"Namespace", "Pod", "Node", "Container", "Status", "QoS Class",
 		"Request CPU (m)", "Request CPU", "Request Memory (Mi)", "Request Memory",
 		"Limit CPU (m)", "Limit CPU", "Limit Memory (Mi)", "Limit Memory",
 		"CPU Efficiency %", "Memory Efficiency %", "CPU % of Cluster", "Memory % of Cluster",
@@ -237,7 +237,7 @@ func generateExcel(pods []corev1.Pod, namespaces *corev1.NamespaceList, filename
 	}
 
 	// Set auto filter
-	if err := f.AutoFilter(sheet1Name, "A2:Q2", []excelize.AutoFilterOptions{}); err != nil {
+	if err := f.AutoFilter(sheet1Name, "A2:R2", []excelize.AutoFilterOptions{}); err != nil {
 		return fmt.Errorf("failed to set auto filter: %w", err)
 	}
 
@@ -382,6 +382,7 @@ func generateExcel(pods []corev1.Pod, namespaces *corev1.NamespaceList, filename
 				pod.Status.HostIP,
 				container.Name,
 				string(pod.Status.Phase),
+				getQoSClass(container),
 				reqCPUVal, reqCPUStr,
 				reqMemVal, reqMemStr,
 				limCPUVal, limCPUStr,
@@ -522,18 +523,19 @@ func setColumnWidths(f *excelize.File, sheetName string) error {
 		"C": 15, // Node
 		"D": 20, // Container
 		"E": 10, // Status
-		"F": 12, // Request CPU (m)
-		"G": 15, // Request CPU
-		"H": 18, // Request Memory (Mi)
-		"I": 15, // Request Memory
-		"J": 12, // Limit CPU (m)
-		"K": 15, // Limit CPU
-		"L": 18, // Limit Memory (Mi)
-		"M": 15, // Limit Memory
-		"N": 16, // CPU Efficiency %
-		"O": 18, // Memory Efficiency %
-		"P": 16, // CPU % of Cluster
-		"Q": 18, // Memory % of Cluster
+		"F": 12, // QoS Class
+		"G": 12, // Request CPU (m)
+		"H": 15, // Request CPU
+		"I": 18, // Request Memory (Mi)
+		"J": 15, // Request Memory
+		"K": 12, // Limit CPU (m)
+		"L": 15, // Limit CPU
+		"M": 18, // Limit Memory (Mi)
+		"N": 15, // Limit Memory
+		"O": 16, // CPU Efficiency %
+		"P": 18, // Memory Efficiency %
+		"Q": 16, // CPU % of Cluster
+		"R": 18, // Memory % of Cluster
 	}
 
 	for col, width := range columnWidths {
@@ -976,6 +978,31 @@ func getLabel(labels map[string]string, key string) string {
 		return val
 	}
 	return "-"
+}
+
+// getQoSClass determines the QoS class for a container
+func getQoSClass(container corev1.Container) string {
+	reqCPU := container.Resources.Requests.Cpu()
+	reqMem := container.Resources.Requests.Memory()
+	limCPU := container.Resources.Limits.Cpu()
+	limMem := container.Resources.Limits.Memory()
+
+	hasRequests := (reqCPU != nil && !reqCPU.IsZero()) || (reqMem != nil && !reqMem.IsZero())
+	hasLimits := (limCPU != nil && !limCPU.IsZero()) || (limMem != nil && !limMem.IsZero())
+
+	// BestEffort: no requests or limits
+	if !hasRequests && !hasLimits {
+		return "BestEffort"
+	}
+
+	// Guaranteed: requests == limits for all resources
+	if reqCPU != nil && limCPU != nil && reqCPU.Cmp(*limCPU) == 0 &&
+		reqMem != nil && limMem != nil && reqMem.Cmp(*limMem) == 0 {
+		return "Guaranteed"
+	}
+
+	// Burstable: everything else
+	return "Burstable"
 }
 
 // Bold number style for totals
