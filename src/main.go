@@ -229,6 +229,8 @@ func generateExcel(pods []corev1.Pod, namespaces *corev1.NamespaceList, filename
 		"Namespace", "Pod", "Node", "Container", "Status", "QoS Class",
 		"Request CPU (m)", "Request CPU", "Request Memory (Mi)", "Request Memory",
 		"Limit CPU (m)", "Limit CPU", "Limit Memory (Mi)", "Limit Memory",
+		"Request Storage (Gi)", "Request Storage", "Limit Storage (Gi)", "Limit Storage",
+		"Request GPU", "Request GPU (str)", "Limit GPU", "Limit GPU (str)",
 		"CPU Efficiency %", "Memory Efficiency %", "CPU % of Cluster", "Memory % of Cluster",
 	}
 
@@ -237,7 +239,7 @@ func generateExcel(pods []corev1.Pod, namespaces *corev1.NamespaceList, filename
 	}
 
 	// Set auto filter
-	if err := f.AutoFilter(sheet1Name, "A2:R2", []excelize.AutoFilterOptions{}); err != nil {
+	if err := f.AutoFilter(sheet1Name, "A2:Z2", []excelize.AutoFilterOptions{}); err != nil {
 		return fmt.Errorf("failed to set auto filter: %w", err)
 	}
 
@@ -330,6 +332,42 @@ func generateExcel(pods []corev1.Pod, namespaces *corev1.NamespaceList, filename
 				limMemStr = limMem.String()
 			}
 
+			// Ephemeral-storage
+			reqStorage := container.Resources.Requests.StorageEphemeral()
+			limStorage := container.Resources.Limits.StorageEphemeral()
+
+			reqStorageVal := float64(0)
+			reqStorageStr := "-"
+			if reqStorage != nil && !reqStorage.IsZero() {
+				reqStorageVal = float64(reqStorage.Value()) / (1024 * 1024 * 1024) // Convert to Gi
+				reqStorageStr = reqStorage.String()
+			}
+
+			limStorageVal := float64(0)
+			limStorageStr := "-"
+			if limStorage != nil && !limStorage.IsZero() {
+				limStorageVal = float64(limStorage.Value()) / (1024 * 1024 * 1024) // Convert to Gi
+				limStorageStr = limStorage.String()
+			}
+
+			// GPU (nvidia.com/gpu)
+			reqGPU := container.Resources.Requests["nvidia.com/gpu"]
+			limGPU := container.Resources.Limits["nvidia.com/gpu"]
+
+			reqGPUVal := int64(0)
+			reqGPUStr := "-"
+			if !reqGPU.IsZero() {
+				reqGPUVal = reqGPU.Value()
+				reqGPUStr = reqGPU.String()
+			}
+
+			limGPUVal := int64(0)
+			limGPUStr := "-"
+			if !limGPU.IsZero() {
+				limGPUVal = limGPU.Value()
+				limGPUStr = limGPU.String()
+			}
+
 			// Calculate efficiency percentages
 			cpuEfficiency := ""
 			memEfficiency := ""
@@ -387,6 +425,10 @@ func generateExcel(pods []corev1.Pod, namespaces *corev1.NamespaceList, filename
 				reqMemVal, reqMemStr,
 				limCPUVal, limCPUStr,
 				limMemVal, limMemStr,
+				reqStorageVal, reqStorageStr,
+				limStorageVal, limStorageStr,
+				reqGPUVal, reqGPUStr,
+				limGPUVal, limGPUStr,
 				cpuEfficiency,
 				memEfficiency,
 				cpuClusterPct,
@@ -532,10 +574,18 @@ func setColumnWidths(f *excelize.File, sheetName string) error {
 		"L": 15, // Limit CPU
 		"M": 18, // Limit Memory (Mi)
 		"N": 15, // Limit Memory
-		"O": 16, // CPU Efficiency %
-		"P": 18, // Memory Efficiency %
-		"Q": 16, // CPU % of Cluster
-		"R": 18, // Memory % of Cluster
+		"O": 18, // Request Storage (Gi)
+		"P": 16, // Request Storage
+		"Q": 18, // Limit Storage (Gi)
+		"R": 16, // Limit Storage
+		"S": 12, // Request GPU
+		"T": 18, // Request GPU (str)
+		"U": 12, // Limit GPU
+		"V": 18, // Limit GPU (str)
+		"W": 16, // CPU Efficiency %
+		"X": 18, // Memory Efficiency %
+		"Y": 16, // CPU % of Cluster
+		"Z": 18, // Memory % of Cluster
 	}
 
 	for col, width := range columnWidths {
