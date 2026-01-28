@@ -87,13 +87,6 @@ func validateNamespace(namespace string) error {
 	return nil
 }
 
-// setCellStyle sets cell style and logs error if it fails
-func setCellStyle(f *excelize.File, sheet, hCell, vCell string, styleID int) {
-	if err := f.SetCellStyle(sheet, hCell, vCell, styleID); err != nil {
-		logrus.Warnf("Failed to set cell style for %s:%s-%s: %v", sheet, hCell, vCell, err)
-	}
-}
-
 func main() {
 	var (
 		namespace  = flag.String("namespace", os.Getenv("K8S_NAMESPACE"), "Kubernetes namespace (default: all namespaces)")
@@ -204,7 +197,11 @@ func getOutputFilename(output string) string {
 
 func generateExcel(pods []corev1.Pod, filename string) error {
 	f := excelize.NewFile()
-	defer f.Close()
+	defer func() {
+		if err := f.Close(); err != nil {
+			logrus.Warnf("Failed to close Excel file: %v", err)
+		}
+	}()
 
 	// Define sheet names
 	sheet1Name, sheet2Name, sheet3Name, sheet4Name, sheet5Name := "Resources", "Namespaces", "Nodes", "Chart", "Insights"
@@ -450,7 +447,7 @@ func generateExcel(pods []corev1.Pod, filename string) error {
 	}
 
 	// Create data science insights sheet
-	if err := createInsightsSheet(f, namespaceTotals, nodeTotals, processedContainers, sheet5Name); err != nil {
+	if err := createInsightsSheet(f, namespaceTotals, nodeTotals, sheet5Name); err != nil {
 		return fmt.Errorf("failed to create insights sheet: %w", err)
 	}
 
@@ -545,7 +542,10 @@ func getEfficiencyStyle(f *excelize.File, efficiency string) int {
 	// Extract percentage value
 	pctStr := strings.TrimSuffix(efficiency, "%")
 	var pct float64
-	fmt.Sscanf(pctStr, "%f", &pct)
+	if _, err := fmt.Sscanf(pctStr, "%f", &pct); err != nil {
+		logrus.Warnf("Failed to parse efficiency percentage '%s': %v", pctStr, err)
+		pct = 0
+	}
 
 	// Color based on efficiency
 	var fillColor string
@@ -567,111 +567,6 @@ func getEfficiencyStyle(f *excelize.File, efficiency string) int {
 		},
 	})
 	return style
-}
-func createNodeSheet(f *excelize.File, pods []corev1.Pod, sheetName string) error {
-	_, err := f.NewSheet(sheetName)
-	if err != nil {
-		return fmt.Errorf("failed to create node sheet: %w", err)
-	}
-
-	// Calculate node totals
-	nodeTotals := make(map[string]struct {
-		podCount       int
-		reqCPU, limCPU int64
-		reqMem, limMem int64
-	})
-
-	for _, pod := range pods {
-		if pod.Status.Phase != corev1.PodRunning && pod.Status.Phase != corev1.PodPending {
-			continue
-		}
-
-		node := pod.Status.HostIP
-		if node == "" {
-			node = "Unknown"
-		}
-
-		totals := nodeTotals[node]
-		totals.podCount++
-
-		for _, container := range pod.Spec.Containers {
-			if reqCPU := container.Resources.Requests.Cpu(); reqCPU != nil {
-				totals.reqCPU += reqCPU.MilliValue()
-			}
-			if limCPU := container.Resources.Limits.Cpu(); limCPU != nil {
-				totals.limCPU += limCPU.MilliValue()
-			}
-			if reqMem := container.Resources.Requests.Memory(); reqMem != nil {
-				totals.reqMem += reqMem.Value()
-			}
-			if limMem := container.Resources.Limits.Memory(); limMem != nil {
-				totals.limMem += limMem.Value()
-			}
-		}
-		nodeTotals[node] = totals
-	}
-
-	// Set headers
-	headers := []string{"Node IP", "Pod Count", "Request CPU (cores)", "Limit CPU (cores)", "Request Memory (Mi)", "Limit Memory (Mi)"}
-	if err := f.SetSheetRow(sheetName, "A1", &headers); err != nil {
-		return fmt.Errorf("failed to set headers: %w", err)
-	}
-
-	// Sort nodes
-	var sortedNodes []string
-	for node := range nodeTotals {
-		sortedNodes = append(sortedNodes, node)
-	}
-	sort.Strings(sortedNodes)
-
-	// Set data
-	row := 2
-	for _, node := range sortedNodes {
-		totals := nodeTotals[node]
-		data := []interface{}{
-			node,
-			totals.podCount,
-			float64(totals.reqCPU) / 1000,
-			float64(totals.limCPU) / 1000,
-			float64(totals.reqMem) / (1024 * 1024),
-			float64(totals.limMem) / (1024 * 1024),
-		}
-
-		cellName, err := excelize.CoordinatesToCellName(1, row)
-		if err != nil {
-			return fmt.Errorf("failed to get cell name for row %d: %w", row, err)
-		}
-
-		if err := f.SetSheetRow(sheetName, cellName, &data); err != nil {
-			return fmt.Errorf("failed to set row data: %w", err)
-		}
-
-		// Format memory columns
-		eCell, _ := excelize.CoordinatesToCellName(5, row)
-		fCell, _ := excelize.CoordinatesToCellName(6, row)
-		f.SetCellStyle(sheetName, eCell, eCell, getNumberStyle(f))
-		f.SetCellStyle(sheetName, fCell, fCell, getNumberStyle(f))
-
-		row++
-	}
-
-	// Set column widths
-	nodeColumnWidths := map[string]float64{
-		"A": 20, // Node IP
-		"B": 12, // Pod Count
-		"C": 18, // Request CPU
-		"D": 16, // Limit CPU
-		"E": 20, // Request Memory
-		"F": 18, // Limit Memory
-	}
-
-	for col, width := range nodeColumnWidths {
-		if err := f.SetColWidth(sheetName, col, col, width); err != nil {
-			return fmt.Errorf("failed to set column width: %w", err)
-		}
-	}
-
-	return nil
 }
 func createSummarySheetFromData(f *excelize.File, namespaceTotals map[string]struct {
 	reqCPU, limCPU int64
@@ -851,11 +746,15 @@ func createChartSheetFromData(f *excelize.File, namespaceTotals map[string]struc
 	lastRow := len(namespaceTotals) + 1
 
 	// Scaled width and height for better readability
-	width := uint(800 * 2.5)                                // Factor 2.5 scaling = 2000px
-	height := uint((600 + (len(namespaceTotals) * 60)) * 3) // Factor 3 scaling
-	if height > 3600 {
-		height = 3600
-	} // Max height
+	width := uint(800 * 2.5) // Factor 2.5 scaling = 2000px
+	heightCalc := (600 + (len(namespaceTotals) * 60)) * 3
+	if heightCalc > 3600 {
+		heightCalc = 3600
+	}
+	if heightCalc < 0 {
+		heightCalc = 600
+	}
+	height := uint(heightCalc) //nolint:gosec // Safe conversion after bounds check
 
 	// Add CPU chart
 	if err := f.AddChart(chartSheetName, "A1", &excelize.Chart{
@@ -887,7 +786,7 @@ func createChartSheetFromData(f *excelize.File, namespaceTotals map[string]struc
 	}
 
 	// Add Memory chart below CPU chart
-	memoryStartRow := fmt.Sprintf("A%d", int(height/2/15)+5) // Position below CPU chart
+	memoryStartRow := fmt.Sprintf("A%d", heightCalc/2/15+5) // Position below CPU chart
 	if err := f.AddChart(chartSheetName, memoryStartRow, &excelize.Chart{
 		Type: excelize.BarStacked,
 		Series: []excelize.ChartSeries{
@@ -1021,13 +920,6 @@ func getBoldNumberStyle(f *excelize.File) int {
 }
 
 // Percentage calculation helper
-func calculatePercentage(part, total int64) string {
-	if total == 0 {
-		return "0%"
-	}
-	return fmt.Sprintf("%.1f%%", float64(part)/float64(total)*100)
-}
-
 // Data Science Insights Sheet
 func createInsightsSheet(f *excelize.File, namespaceTotals map[string]struct {
 	reqCPU, limCPU int64
@@ -1036,7 +928,7 @@ func createInsightsSheet(f *excelize.File, namespaceTotals map[string]struct {
 	podCount       int
 	reqCPU, limCPU int64
 	reqMem, limMem int64
-}, containerCount int, sheetName string) error {
+}, sheetName string) error {
 
 	_, err := f.NewSheet(sheetName)
 	if err != nil {
@@ -1105,11 +997,8 @@ func createInsightsSheet(f *excelize.File, namespaceTotals map[string]struct {
 	row += 2
 
 	var podCounts []int
-	var nodeCPUs, nodeMemories []int64
 	for _, totals := range nodeTotals {
 		podCounts = append(podCounts, totals.podCount)
-		nodeCPUs = append(nodeCPUs, totals.reqCPU)
-		nodeMemories = append(nodeMemories, totals.reqMem)
 	}
 
 	nodeInsights := [][]interface{}{

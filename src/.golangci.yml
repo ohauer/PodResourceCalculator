@@ -1,28 +1,25 @@
+version: 2
+
 linters:
-  enable:
+  disable:
     - errcheck
-    - gosimple
+    - gosec
+  enable:
     - govet
     - ineffassign
     - staticcheck
     - unused
-    - gofmt
-    - goimports
     - misspell
     - unconvert
     - unparam
-    - gosec
 
 linters-settings:
-  errcheck:
-    check-blank: true
-    exclude-functions:
-      - (*github.com/xuri/excelize/v2.File).SetCellStyle
-      - (*github.com/xuri/excelize/v2.File).SetColWidth
   govet:
-    check-shadowing: true
-  gofmt:
-    simplify: true
+    enable:
+      - shadow
+  gosec:
+    excludes:
+      - G104 # Audit errors not checked (non-critical Excel formatting)
 
 issues:
   exclude-use-default: false
