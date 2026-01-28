@@ -93,8 +93,15 @@ The generated Excel file contains six comprehensive sheets:
 ### Nodes Sheet (Node Utilization)
 - **Node IP**: Host node identifier
 - **Pod Count**: Number of pods per node
-- **Resource totals**: CPU and memory requests/limits per node
-- **Capacity planning**: Understand node resource distribution
+- **Request CPU (cores)**: Total CPU requests per node
+- **Limit CPU (cores)**: Total CPU limits per node
+- **Request Memory (Mi)**: Total memory requests per node
+- **Limit Memory (Mi)**: Total memory limits per node
+- **Capacity CPU (cores)**: Node CPU capacity
+- **Capacity Memory (Mi)**: Node memory capacity
+- **CPU Utilization %**: Percentage of CPU capacity requested
+- **Memory Utilization %**: Percentage of memory capacity requested
+- **Capacity planning**: Understand node resource distribution and utilization
 - **Alphabetical sorting**: Nodes sorted by IP address
 
 ### Chart Sheet (Visual Analytics)
