@@ -126,10 +126,10 @@ func main() {
 	}
 
 	logrus.Infof("Fetching pods from namespace: %s", getNamespaceDisplay(*namespace))
-	
+
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	
+
 	pods, err := clientSet.CoreV1().Pods(*namespace).List(ctx, metav1.ListOptions{})
 	if err != nil {
 		logrus.Fatalf("Failed to list pods: %v", err)
@@ -231,13 +231,15 @@ func generateExcel(pods []corev1.Pod, namespaces *corev1.NamespaceList, nodes *c
 		return fmt.Errorf("failed to delete default sheet: %w", err)
 	}
 
-	// Set headers
+	// Set headers - prioritize main resource columns from original design
 	headers := []string{
-		"Namespace", "Pod", "Pod Age", "Restart Count", "Last Restart", "Node", "Container", "Status", "QoS Class",
+		"Namespace", "Pod", "Container",
 		"Request CPU (m)", "Request CPU", "Request Memory (Mi)", "Request Memory",
 		"Limit CPU (m)", "Limit CPU", "Limit Memory (Mi)", "Limit Memory",
+		"Pod Age", "Restart Count", "Last Restart",
 		"Request Storage (Gi)", "Request Storage", "Limit Storage (Gi)", "Limit Storage",
 		"Request GPU", "Request GPU (str)", "Limit GPU", "Limit GPU (str)",
+		"Status", "QoS Class", "Node",
 		"CPU Efficiency %", "Memory Efficiency %", "CPU % of Cluster", "Memory % of Cluster",
 	}
 
@@ -279,7 +281,8 @@ func generateExcel(pods []corev1.Pod, namespaces *corev1.NamespaceList, nodes *c
 		podCount         int
 		reqCPU, limCPU   int64
 		reqMem, limMem   int64
-		capCPU, capMem   int64
+		capCPU, capMem   int64 // Capacity (total)
+		allocCPU, allocMem int64 // Allocatable (capacity - system reservations)
 		nodeName, nodeIP string
 	})
 
@@ -406,7 +409,7 @@ func generateExcel(pods []corev1.Pod, namespaces *corev1.NamespaceList, nodes *c
 				cpuEfficiency = fmt.Sprintf("%.1f%%", float64(reqCPUVal)/float64(limCPUVal)*100)
 			}
 			if limMemVal > 0 && reqMemVal > 0 {
-				memEfficiency = fmt.Sprintf("%.1f%%", reqMemVal/limMemVal*100)
+				memEfficiency = fmt.Sprintf("%.1f%%", float64(reqMemVal)/float64(limMemVal)*100)
 			}
 
 			// Aggregate data for other sheets
@@ -448,21 +451,21 @@ func generateExcel(pods []corev1.Pod, namespaces *corev1.NamespaceList, nodes *c
 			rowData := []interface{}{
 				pod.Namespace,
 				pod.Name,
-				podAge,
-				totalRestarts,
-				lastRestartStr,
-				pod.Status.HostIP,
 				container.Name,
-				string(pod.Status.Phase),
-				getQoSClass(container),
 				reqCPUVal, reqCPUStr,
 				reqMemVal, reqMemStr,
 				limCPUVal, limCPUStr,
 				limMemVal, limMemStr,
+				podAge,
+				totalRestarts,
+				lastRestartStr,
 				reqStorageVal, reqStorageStr,
 				limStorageVal, limStorageStr,
 				reqGPUVal, reqGPUStr,
 				limGPUVal, limGPUStr,
+				string(pod.Status.Phase),
+				getQoSClass(container),
+				pod.Status.HostIP,
 				cpuEfficiency,
 				memEfficiency,
 				cpuClusterPct,
@@ -475,11 +478,11 @@ func generateExcel(pods []corev1.Pod, namespaces *corev1.NamespaceList, nodes *c
 				return err
 			}
 
-			// Format memory columns to 1 decimal place
-			lCell, _ := excelize.CoordinatesToCellName(12, row) // Column L (Request Memory Mi)
-			pCell, _ := excelize.CoordinatesToCellName(16, row) // Column P (Limit Memory Mi)
-			f.SetCellStyle(sheet1Name, lCell, lCell, getNumberStyle(f))
-			f.SetCellStyle(sheet1Name, pCell, pCell, getNumberStyle(f))
+			// Format memory columns to integer (no decimal places)
+			fCell, _ := excelize.CoordinatesToCellName(6, row)  // Column F (Request Memory Mi)
+			jCell, _ := excelize.CoordinatesToCellName(10, row) // Column J (Limit Memory Mi)
+			f.SetCellStyle(sheet1Name, fCell, fCell, getIntegerStyle(f))
+			f.SetCellStyle(sheet1Name, jCell, jCell, getIntegerStyle(f))
 
 			// Apply conditional formatting for efficiency
 			zCell, _ := excelize.CoordinatesToCellName(26, row)  // CPU Efficiency
@@ -494,7 +497,7 @@ func generateExcel(pods []corev1.Pod, namespaces *corev1.NamespaceList, nodes *c
 			row++
 			processedContainers++
 		}
-		
+
 		// Update node totals once after processing all containers in the pod
 		nodeTotals[node] = nodeTotal
 	}
@@ -526,9 +529,11 @@ func generateExcel(pods []corev1.Pod, namespaces *corev1.NamespaceList, nodes *c
 			// Match by node name or IP
 			for nodeKey, totals := range nodeTotals {
 				if totals.nodeName == node.Name || nodeKey == getNodeIP(&node) {
-					// Use Allocatable instead of Capacity (actual resources available for pods)
-					totals.capCPU = node.Status.Allocatable.Cpu().MilliValue()
-					totals.capMem = node.Status.Allocatable.Memory().Value()
+					// Store both Capacity and Allocatable
+					totals.capCPU = node.Status.Capacity.Cpu().MilliValue()
+					totals.capMem = node.Status.Capacity.Memory().Value()
+					totals.allocCPU = node.Status.Allocatable.Cpu().MilliValue()
+					totals.allocMem = node.Status.Allocatable.Memory().Value()
 					nodeTotals[nodeKey] = totals
 					break
 				}
@@ -578,10 +583,10 @@ func generateExcel(pods []corev1.Pod, namespaces *corev1.NamespaceList, nodes *c
 
 func addSummaryFormulas(f *excelize.File, sheetName string, lastRow int) error {
 	formulas := map[string]string{
-		"F1": fmt.Sprintf("SUBTOTAL(109,F3:F%d)/1000", lastRow-1), // CPU requests in cores
-		"H1": fmt.Sprintf("SUBTOTAL(109,H3:H%d)", lastRow-1),      // Memory requests in Mi
-		"J1": fmt.Sprintf("SUBTOTAL(109,J3:J%d)/1000", lastRow-1), // CPU limits in cores
-		"L1": fmt.Sprintf("SUBTOTAL(109,L3:L%d)", lastRow-1),      // Memory limits in Mi
+		"D1": fmt.Sprintf("ROUND(SUBTOTAL(109,D3:D%d)/1000,2)", lastRow-1), // CPU requests in cores
+		"F1": fmt.Sprintf("ROUND(SUBTOTAL(109,F3:F%d),2)", lastRow-1),      // Memory requests in Mi
+		"H1": fmt.Sprintf("ROUND(SUBTOTAL(109,H3:H%d)/1000,2)", lastRow-1), // CPU limits in cores
+		"J1": fmt.Sprintf("ROUND(SUBTOTAL(109,J3:J%d),2)", lastRow-1),      // Memory limits in Mi
 	}
 
 	for cell, formula := range formulas {
@@ -608,33 +613,33 @@ func setPanes(f *excelize.File, sheetName string) error {
 }
 
 func setColumnWidths(f *excelize.File, sheetName string) error {
-	// Optimal column widths based on typical content
+	// Optimal column widths based on typical content - reordered
 	columnWidths := map[string]float64{
 		"A": 15, // Namespace
 		"B": 25, // Pod
-		"C": 15, // Pod Age
-		"D": 14, // Restart Count
-		"E": 18, // Last Restart
-		"F": 15, // Node
-		"G": 20, // Container
-		"H": 10, // Status
-		"I": 12, // QoS Class
-		"J": 12, // Request CPU (m)
-		"K": 15, // Request CPU
-		"L": 18, // Request Memory (Mi)
-		"M": 15, // Request Memory
-		"N": 12, // Limit CPU (m)
-		"O": 15, // Limit CPU
-		"P": 18, // Limit Memory (Mi)
-		"Q": 15, // Limit Memory
-		"R": 18, // Request Storage (Gi)
-		"S": 16, // Request Storage
-		"T": 18, // Limit Storage (Gi)
-		"U": 16, // Limit Storage
-		"V": 12, // Request GPU
-		"W": 18, // Request GPU (str)
-		"X": 12, // Limit GPU
-		"Y": 18, // Limit GPU (str)
+		"C": 20, // Container
+		"D": 12, // Request CPU (m)
+		"E": 15, // Request CPU
+		"F": 18, // Request Memory (Mi)
+		"G": 15, // Request Memory
+		"H": 12, // Limit CPU (m)
+		"I": 15, // Limit CPU
+		"J": 18, // Limit Memory (Mi)
+		"K": 15, // Limit Memory
+		"L": 15, // Pod Age
+		"M": 14, // Restart Count
+		"N": 18, // Last Restart
+		"O": 18, // Request Storage (Gi)
+		"P": 16, // Request Storage
+		"Q": 18, // Limit Storage (Gi)
+		"R": 16, // Limit Storage
+		"S": 12, // Request GPU
+		"T": 18, // Request GPU (str)
+		"U": 12, // Limit GPU
+		"V": 18, // Limit GPU (str)
+		"W": 10, // Status
+		"X": 12, // QoS Class
+		"Y": 15, // Node
 		"Z": 16, // CPU Efficiency %
 		"AA": 18, // Memory Efficiency %
 		"AB": 16, // CPU % of Cluster
@@ -650,9 +655,9 @@ func setColumnWidths(f *excelize.File, sheetName string) error {
 	return nil
 }
 
-func getNumberStyle(f *excelize.File) int {
+func getIntegerStyle(f *excelize.File) int {
 	style, _ := f.NewStyle(&excelize.Style{
-		NumFmt: 2, // 0.0 format (1 decimal place)
+		NumFmt: 1, // 0 format (no decimal places)
 	})
 	return style
 }
@@ -732,11 +737,11 @@ func createSummarySheetFromData(f *excelize.File, namespaceTotals map[string]str
 			return err
 		}
 
-		// Format memory columns
+		// Format memory columns to integer
 		dCell, _ := excelize.CoordinatesToCellName(4, row)
 		eCell, _ := excelize.CoordinatesToCellName(5, row)
-		f.SetCellStyle(sheetName, dCell, dCell, getNumberStyle(f))
-		f.SetCellStyle(sheetName, eCell, eCell, getNumberStyle(f))
+		f.SetCellStyle(sheetName, dCell, dCell, getIntegerStyle(f))
+		f.SetCellStyle(sheetName, eCell, eCell, getIntegerStyle(f))
 
 		row++
 	}
@@ -761,11 +766,11 @@ func createSummarySheetFromData(f *excelize.File, namespaceTotals map[string]str
 		f.SetCellStyle(sheetName, cell, cell, totalStyle)
 	}
 
-	// Format memory columns in totals
+	// Format memory columns in totals to integer
 	dCell, _ := excelize.CoordinatesToCellName(4, row)
 	eCell, _ := excelize.CoordinatesToCellName(5, row)
-	f.SetCellStyle(sheetName, dCell, dCell, getBoldNumberStyle(f))
-	f.SetCellStyle(sheetName, eCell, eCell, getBoldNumberStyle(f))
+	f.SetCellStyle(sheetName, dCell, dCell, getBoldIntegerStyle(f))
+	f.SetCellStyle(sheetName, eCell, eCell, getBoldIntegerStyle(f))
 
 	// Set column widths
 	summaryColumnWidths := map[string]float64{
@@ -782,19 +787,20 @@ func createSummarySheetFromData(f *excelize.File, namespaceTotals map[string]str
 }
 
 func createNodeSheetFromData(f *excelize.File, nodeTotals map[string]struct {
-	podCount         int
-	reqCPU, limCPU   int64
-	reqMem, limMem   int64
-	capCPU, capMem   int64
-	nodeName, nodeIP string
+	podCount           int
+	reqCPU, limCPU     int64
+	reqMem, limMem     int64
+	capCPU, capMem     int64
+	allocCPU, allocMem int64
+	nodeName, nodeIP   string
 }, sheetName string) error {
 	_, err := f.NewSheet(sheetName)
 	if err != nil {
 		return fmt.Errorf("failed to create node sheet: %w", err)
 	}
 
-	// Set headers
-	headers := []string{"Node IP", "Pod Count", "Request CPU (cores)", "Limit CPU (cores)", "Request Memory (Mi)", "Limit Memory (Mi)", "Allocatable CPU (cores)", "Allocatable Memory (Mi)", "CPU Utilization %", "Memory Utilization %"}
+	// Set headers - reordered: Node IP, Pod Count, Capacity CPU, Allocatable CPU, Request CPU, Limit CPU, CPU Util%, Capacity Mem, Allocatable Mem, Request Mem, Limit Mem, Mem Util%
+	headers := []string{"Node IP", "Pod Count", "Capacity CPU", "Allocatable CPU", "Request CPU", "Limit CPU", "CPU Utilization %", "Capacity Memory (Mi)", "Allocatable Memory (Mi)", "Request Memory (Mi)", "Limit Memory (Mi)", "Memory Utilization %"}
 	if err := f.SetSheetRow(sheetName, "A1", &headers); err != nil {
 		return fmt.Errorf("failed to set headers: %w", err)
 	}
@@ -810,27 +816,29 @@ func createNodeSheetFromData(f *excelize.File, nodeTotals map[string]struct {
 	row := 2
 	for _, node := range sortedNodes {
 		totals := nodeTotals[node]
-		
-		// Calculate utilization percentages
+
+		// Calculate utilization percentages based on Allocatable
 		cpuUtil := "-"
 		memUtil := "-"
-		if totals.capCPU > 0 {
-			cpuUtil = fmt.Sprintf("%.1f%%", float64(totals.reqCPU)/float64(totals.capCPU)*100)
+		if totals.allocCPU > 0 {
+			cpuUtil = fmt.Sprintf("%.1f%%", float64(totals.reqCPU)/float64(totals.allocCPU)*100)
 		}
-		if totals.capMem > 0 {
-			memUtil = fmt.Sprintf("%.1f%%", float64(totals.reqMem)/float64(totals.capMem)*100)
+		if totals.allocMem > 0 {
+			memUtil = fmt.Sprintf("%.1f%%", float64(totals.reqMem)/float64(totals.allocMem)*100)
 		}
-		
+
 		data := []interface{}{
 			node,
 			totals.podCount,
+			float64(totals.capCPU) / 1000,
+			float64(totals.allocCPU) / 1000,
 			float64(totals.reqCPU) / 1000,
 			float64(totals.limCPU) / 1000,
+			cpuUtil,
+			float64(totals.capMem) / (1024 * 1024),
+			float64(totals.allocMem) / (1024 * 1024),
 			float64(totals.reqMem) / (1024 * 1024),
 			float64(totals.limMem) / (1024 * 1024),
-			float64(totals.capCPU) / 1000,
-			float64(totals.capMem) / (1024 * 1024),
-			cpuUtil,
 			memUtil,
 		}
 
@@ -843,13 +851,22 @@ func createNodeSheetFromData(f *excelize.File, nodeTotals map[string]struct {
 			return fmt.Errorf("failed to set row data: %w", err)
 		}
 
-		// Format memory columns
-		eCell, _ := excelize.CoordinatesToCellName(5, row)
-		fCell, _ := excelize.CoordinatesToCellName(6, row)
+		// Format memory columns to integer (now at positions 8, 9, 10, 11)
 		hCell, _ := excelize.CoordinatesToCellName(8, row)
-		f.SetCellStyle(sheetName, eCell, eCell, getNumberStyle(f))
-		f.SetCellStyle(sheetName, fCell, fCell, getNumberStyle(f))
-		f.SetCellStyle(sheetName, hCell, hCell, getNumberStyle(f))
+		iCell, _ := excelize.CoordinatesToCellName(9, row)
+		jCell, _ := excelize.CoordinatesToCellName(10, row)
+		kCell, _ := excelize.CoordinatesToCellName(11, row)
+		f.SetCellStyle(sheetName, hCell, hCell, getIntegerStyle(f))
+		f.SetCellStyle(sheetName, iCell, iCell, getIntegerStyle(f))
+		f.SetCellStyle(sheetName, jCell, jCell, getIntegerStyle(f))
+		f.SetCellStyle(sheetName, kCell, kCell, getIntegerStyle(f))
+
+		// Right-align utilization percentage columns (G and L)
+		gCell, _ := excelize.CoordinatesToCellName(7, row)
+		lCell, _ := excelize.CoordinatesToCellName(12, row)
+		rightAlignStyle, _ := f.NewStyle(&excelize.Style{Alignment: &excelize.Alignment{Horizontal: "right"}})
+		f.SetCellStyle(sheetName, gCell, gCell, rightAlignStyle)
+		f.SetCellStyle(sheetName, lCell, lCell, rightAlignStyle)
 
 		row++
 	}
@@ -858,14 +875,16 @@ func createNodeSheetFromData(f *excelize.File, nodeTotals map[string]struct {
 	nodeColumnWidths := map[string]float64{
 		"A": 20, // Node IP
 		"B": 12, // Pod Count
-		"C": 18, // Request CPU
-		"D": 16, // Limit CPU
-		"E": 20, // Request Memory
-		"F": 18, // Limit Memory
-		"G": 22, // Allocatable CPU
-		"H": 22, // Allocatable Memory
-		"I": 18, // CPU Utilization %
-		"J": 20, // Memory Utilization %
+		"C": 16, // Capacity CPU
+		"D": 18, // Allocatable CPU
+		"E": 14, // Request CPU
+		"F": 12, // Limit CPU
+		"G": 18, // CPU Utilization %
+		"H": 20, // Capacity Memory
+		"I": 22, // Allocatable Memory
+		"J": 20, // Request Memory
+		"K": 18, // Limit Memory
+		"L": 20, // Memory Utilization %
 	}
 
 	for col, width := range nodeColumnWidths {
@@ -993,11 +1012,12 @@ func validateAndWarnResources(namespaceTotals map[string]struct {
 	reqCPU, limCPU int64
 	reqMem, limMem int64
 }, nodeTotals map[string]struct {
-	podCount         int
-	reqCPU, limCPU   int64
-	reqMem, limMem   int64
-	capCPU, capMem   int64
-	nodeName, nodeIP string
+	podCount           int
+	reqCPU, limCPU     int64
+	reqMem, limMem     int64
+	capCPU, capMem     int64
+	allocCPU, allocMem int64
+	nodeName, nodeIP   string
 }, containerCount int) {
 
 	var warnings []string
@@ -1149,10 +1169,10 @@ func getQoSClass(container corev1.Container) string {
 }
 
 // Bold number style for totals
-func getBoldNumberStyle(f *excelize.File) int {
+func getBoldIntegerStyle(f *excelize.File) int {
 	style, _ := f.NewStyle(&excelize.Style{
 		Font:   &excelize.Font{Bold: true},
-		NumFmt: 2, // 0.0 format
+		NumFmt: 1, // 0 format (no decimal places)
 	})
 	return style
 }
@@ -1163,11 +1183,12 @@ func createInsightsSheet(f *excelize.File, namespaceTotals map[string]struct {
 	reqCPU, limCPU int64
 	reqMem, limMem int64
 }, nodeTotals map[string]struct {
-	podCount         int
-	reqCPU, limCPU   int64
-	reqMem, limMem   int64
-	capCPU, capMem   int64
-	nodeName, nodeIP string
+	podCount           int
+	reqCPU, limCPU     int64
+	reqMem, limMem     int64
+	capCPU, capMem     int64
+	allocCPU, allocMem int64
+	nodeName, nodeIP   string
 }, sheetName string) error {
 
 	_, err := f.NewSheet(sheetName)

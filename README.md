@@ -66,11 +66,11 @@ The generated Excel file contains six comprehensive sheets:
 - **QoS Class**: Quality of Service class (Guaranteed, Burstable, BestEffort)
 - **Request CPU (m)**: CPU requests in millicores
 - **Request CPU**: CPU requests (canonical format)
-- **Request Memory (Mi)**: Memory requests in mebibytes (1 decimal)
+- **Request Memory (Mi)**: Memory requests in mebibytes (integer)
 - **Request Memory**: Memory requests (canonical format)
 - **Limit CPU (m)**: CPU limits in millicores
 - **Limit CPU**: CPU limits (canonical format)
-- **Limit Memory (Mi)**: Memory limits in mebibytes (1 decimal)
+- **Limit Memory (Mi)**: Memory limits in mebibytes (integer)
 - **Limit Memory**: Memory limits (canonical format)
 - **Request Storage (Gi)**: Ephemeral-storage requests in gibibytes
 - **Request Storage**: Ephemeral-storage requests (canonical format)
@@ -93,14 +93,16 @@ The generated Excel file contains six comprehensive sheets:
 ### Nodes Sheet (Node Utilization)
 - **Node IP**: Host node identifier
 - **Pod Count**: Number of pods per node
-- **Request CPU (cores)**: Total CPU requests per node
-- **Limit CPU (cores)**: Total CPU limits per node
-- **Request Memory (Mi)**: Total memory requests per node
-- **Limit Memory (Mi)**: Total memory limits per node
-- **Allocatable CPU (cores)**: Node allocatable CPU (capacity minus system reservations)
-- **Allocatable Memory (Mi)**: Node allocatable memory (capacity minus system reservations)
-- **CPU Utilization %**: Percentage of allocatable CPU requested
-- **Memory Utilization %**: Percentage of allocatable memory requested
+- **Capacity CPU**: Total CPU capacity per node
+- **Allocatable CPU**: Node allocatable CPU (capacity minus system reservations)
+- **Request CPU**: Total CPU requests per node
+- **Limit CPU**: Total CPU limits per node
+- **CPU Utilization %**: Percentage of allocatable CPU requested (right-aligned)
+- **Capacity Memory (Mi)**: Total memory capacity per node (integer)
+- **Allocatable Memory (Mi)**: Node allocatable memory (capacity minus system reservations, integer)
+- **Request Memory (Mi)**: Total memory requests per node (integer)
+- **Limit Memory (Mi)**: Total memory limits per node (integer)
+- **Memory Utilization %**: Percentage of allocatable memory requested (right-aligned)
 - **Capacity planning**: Understand node resource distribution and utilization
 - **Alphabetical sorting**: Nodes sorted by IP address
 
@@ -135,10 +137,10 @@ The generated Excel file contains six comprehensive sheets:
 - **Pod status filtering**: Only includes Running and Pending pods
 - **Missing resource handling**: Shows "Not Set" for containers without limits/requests
 - **Summary formulas**: Automatic totals in Resources sheet row 1
-  - F1: Total CPU requests (cores)
-  - H1: Total memory requests (Mi)
-  - J1: Total CPU limits (cores)
-  - L1: Total memory limits (Mi)
+  - D1: Total CPU requests (cores, rounded to 2 decimals)
+  - F1: Total memory requests (Mi, rounded to 2 decimals)
+  - H1: Total CPU limits (cores, rounded to 2 decimals)
+  - J1: Total memory limits (Mi, rounded to 2 decimals)
 - **Freeze panes**: Header rows stay visible when scrolling
 - **Optimized column widths**: Properly sized for content readability
 - **Professional charts**: Dedicated chart sheet with dynamic sizing
