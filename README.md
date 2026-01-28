@@ -60,6 +60,7 @@ The generated Excel file contains six comprehensive sheets:
 - **Node**: Host node IP
 - **Container**: Container name
 - **Status**: Pod status (Running, Pending, etc.)
+- **QoS Class**: Quality of Service class (Guaranteed, Burstable, BestEffort)
 - **Request CPU (m)**: CPU requests in millicores
 - **Request CPU**: CPU requests (canonical format)
 - **Request Memory (Mi)**: Memory requests in mebibytes (1 decimal)
