@@ -15,7 +15,7 @@ BINARY_FREEBSD=$(BINARY_NAME)-freebsd-amd64
 LDFLAGS=-ldflags "-s -w"
 BUILD_FLAGS=-trimpath $(LDFLAGS)
 
-.PHONY: all build clean test deps help run
+.PHONY: all build clean test deps help run lint
 
 all: test build
 
@@ -49,6 +49,10 @@ deps: ## Download dependencies
 
 run: build ## Build and run with default settings
 	../$(BINARY_NAME) -verbose
+
+lint: ## Run golangci-lint
+	@which golangci-lint > /dev/null || (echo "golangci-lint not found. Install: https://golangci-lint.run/usage/install/" && exit 1)
+	golangci-lint run ./...
 
 help: ## Show this help message
 	@echo 'Usage: make [target]'

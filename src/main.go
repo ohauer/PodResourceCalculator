@@ -194,7 +194,6 @@ func generateExcel(pods []corev1.Pod, filename string) error {
 		}
 		nodeTotal := nodeTotals[node]
 		nodeTotal.podCount++
-		nodeTotals[node] = nodeTotal
 
 		for _, container := range pod.Spec.Containers {
 			reqCPU := container.Resources.Requests.Cpu()
@@ -257,11 +256,7 @@ func generateExcel(pods []corev1.Pod, filename string) error {
 			}
 			namespaceTotals[ns] = nsTotals
 
-			node := pod.Status.HostIP
-			if node == "" {
-				node = "Unknown"
-			}
-			nodeTotal := nodeTotals[node]
+			// Update node totals (accumulated for all containers in this pod)
 			nodeTotal.reqCPU += reqCPUVal
 			nodeTotal.limCPU += limCPUVal
 			if reqMem != nil {
@@ -270,7 +265,6 @@ func generateExcel(pods []corev1.Pod, filename string) error {
 			if limMem != nil {
 				nodeTotal.limMem += limMem.Value()
 			}
-			nodeTotals[node] = nodeTotal
 
 			// Calculate cluster percentages
 			cpuClusterPct := ""
@@ -323,6 +317,9 @@ func generateExcel(pods []corev1.Pod, filename string) error {
 			row++
 			processedContainers++
 		}
+		
+		// Update node totals once after processing all containers in the pod
+		nodeTotals[node] = nodeTotal
 	}
 
 	logrus.Infof("Completed processing: %d pods, %d containers", len(pods), processedContainers)
