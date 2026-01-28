@@ -137,7 +137,14 @@ func main() {
 
 	logrus.Infof("Found %d pods", len(pods.Items))
 
-	if err := generateExcel(pods.Items, filename); err != nil {
+	// Fetch namespaces for PSS data
+	namespaces, err := clientSet.CoreV1().Namespaces().List(ctx, metav1.ListOptions{})
+	if err != nil {
+		logrus.Warnf("Failed to list namespaces for PSS data: %v", err)
+		namespaces = nil
+	}
+
+	if err := generateExcel(pods.Items, namespaces, filename); err != nil {
 		logrus.Fatalf("Failed to generate Excel file: %v", err)
 	}
 
@@ -195,7 +202,7 @@ func getOutputFilename(output string) string {
 	return fmt.Sprintf("resource_%s.xlsx", time.Now().Format("2006-01-02"))
 }
 
-func generateExcel(pods []corev1.Pod, filename string) error {
+func generateExcel(pods []corev1.Pod, namespaces *corev1.NamespaceList, filename string) error {
 	f := excelize.NewFile()
 	defer func() {
 		if err := f.Close(); err != nil {
@@ -204,7 +211,7 @@ func generateExcel(pods []corev1.Pod, filename string) error {
 	}()
 
 	// Define sheet names
-	sheet1Name, sheet2Name, sheet3Name, sheet4Name, sheet5Name := "Resources", "Namespaces", "Nodes", "Chart", "Insights"
+	sheet1Name, sheet2Name, sheet3Name, sheet4Name, sheet5Name, sheet6Name := "Resources", "Namespaces", "Nodes", "Chart", "Insights", "Pod Security"
 
 	index, err := f.NewSheet(sheet1Name)
 	if err != nil {
@@ -449,6 +456,13 @@ func generateExcel(pods []corev1.Pod, filename string) error {
 	// Create data science insights sheet
 	if err := createInsightsSheet(f, namespaceTotals, nodeTotals, sheet5Name); err != nil {
 		return fmt.Errorf("failed to create insights sheet: %w", err)
+	}
+
+	// Create Pod Security Standards sheet
+	if namespaces != nil {
+		if err := createPodSecuritySheet(f, namespaces, sheet6Name); err != nil {
+			return fmt.Errorf("failed to create pod security sheet: %w", err)
+		}
 	}
 
 	// Freeze panes
@@ -908,6 +922,56 @@ func getBoldStyle(f *excelize.File) int {
 		Font: &excelize.Font{Bold: true},
 	})
 	return style
+}
+
+// createPodSecuritySheet creates a sheet with Pod Security Standards information
+func createPodSecuritySheet(f *excelize.File, namespaces *corev1.NamespaceList, sheetName string) error {
+	_, err := f.NewSheet(sheetName)
+	if err != nil {
+		return fmt.Errorf("failed to create pod security sheet: %w", err)
+	}
+
+	headers := []string{"Namespace", "Enforce Level", "Enforce Version", "Audit Level", "Audit Version", "Warn Level", "Warn Version"}
+	if err := f.SetSheetRow(sheetName, "A1", &headers); err != nil {
+		return fmt.Errorf("failed to set headers: %w", err)
+	}
+
+	row := 2
+	for _, ns := range namespaces.Items {
+		labels := ns.Labels
+		data := []interface{}{
+			ns.Name,
+			getLabel(labels, "pod-security.kubernetes.io/enforce"),
+			getLabel(labels, "pod-security.kubernetes.io/enforce-version"),
+			getLabel(labels, "pod-security.kubernetes.io/audit"),
+			getLabel(labels, "pod-security.kubernetes.io/audit-version"),
+			getLabel(labels, "pod-security.kubernetes.io/warn"),
+			getLabel(labels, "pod-security.kubernetes.io/warn-version"),
+		}
+
+		cellName, _ := excelize.CoordinatesToCellName(1, row)
+		if err := f.SetSheetRow(sheetName, cellName, &data); err != nil {
+			return fmt.Errorf("failed to set row data: %w", err)
+		}
+		row++
+	}
+
+	columnWidths := map[string]float64{
+		"A": 25, "B": 15, "C": 18, "D": 15, "E": 18, "F": 15, "G": 18,
+	}
+	for col, width := range columnWidths {
+		f.SetColWidth(sheetName, col, col, width)
+	}
+
+	return nil
+}
+
+// getLabel returns label value or "-" if not set
+func getLabel(labels map[string]string, key string) string {
+	if val, ok := labels[key]; ok && val != "" {
+		return val
+	}
+	return "-"
 }
 
 // Bold number style for totals
