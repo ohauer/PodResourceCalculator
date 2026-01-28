@@ -52,22 +52,34 @@ make build
 
 ## Excel Output
 
-The generated Excel file contains four comprehensive sheets:
+The generated Excel file contains six comprehensive sheets:
 
 ### Resources Sheet (Detailed Container Data)
 - **Namespace**: Pod namespace
 - **Pod**: Pod name
+- **Pod Age**: Time since pod creation (e.g., "5h30m15s")
+- **Restart Count**: Total container restarts in pod
+- **Last Restart**: Time since last container termination (e.g., "2h ago")
 - **Node**: Host node IP
 - **Container**: Container name
 - **Status**: Pod status (Running, Pending, etc.)
+- **QoS Class**: Quality of Service class (Guaranteed, Burstable, BestEffort)
 - **Request CPU (m)**: CPU requests in millicores
 - **Request CPU**: CPU requests (canonical format)
-- **Request Memory (Mi)**: Memory requests in mebibytes (1 decimal)
+- **Request Memory (Mi)**: Memory requests in mebibytes (integer)
 - **Request Memory**: Memory requests (canonical format)
 - **Limit CPU (m)**: CPU limits in millicores
 - **Limit CPU**: CPU limits (canonical format)
-- **Limit Memory (Mi)**: Memory limits in mebibytes (1 decimal)
+- **Limit Memory (Mi)**: Memory limits in mebibytes (integer)
 - **Limit Memory**: Memory limits (canonical format)
+- **Request Storage (Gi)**: Ephemeral-storage requests in gibibytes
+- **Request Storage**: Ephemeral-storage requests (canonical format)
+- **Limit Storage (Gi)**: Ephemeral-storage limits in gibibytes
+- **Limit Storage**: Ephemeral-storage limits (canonical format)
+- **Request GPU**: GPU requests (nvidia.com/gpu)
+- **Request GPU (str)**: GPU requests (canonical format)
+- **Limit GPU**: GPU limits (nvidia.com/gpu)
+- **Limit GPU (str)**: GPU limits (canonical format)
 - **CPU Efficiency %**: Request/Limit ratio for CPU
 - **Memory Efficiency %**: Request/Limit ratio for Memory
 
@@ -81,8 +93,17 @@ The generated Excel file contains four comprehensive sheets:
 ### Nodes Sheet (Node Utilization)
 - **Node IP**: Host node identifier
 - **Pod Count**: Number of pods per node
-- **Resource totals**: CPU and memory requests/limits per node
-- **Capacity planning**: Understand node resource distribution
+- **Capacity CPU**: Total CPU capacity per node
+- **Allocatable CPU**: Node allocatable CPU (capacity minus system reservations)
+- **Request CPU**: Total CPU requests per node
+- **Limit CPU**: Total CPU limits per node
+- **CPU Utilization %**: Percentage of allocatable CPU requested (right-aligned)
+- **Capacity Memory (Mi)**: Total memory capacity per node (integer)
+- **Allocatable Memory (Mi)**: Node allocatable memory (capacity minus system reservations, integer)
+- **Request Memory (Mi)**: Total memory requests per node (integer)
+- **Limit Memory (Mi)**: Total memory limits per node (integer)
+- **Memory Utilization %**: Percentage of allocatable memory requested (right-aligned)
+- **Capacity planning**: Understand node resource distribution and utilization
 - **Alphabetical sorting**: Nodes sorted by IP address
 
 ### Chart Sheet (Visual Analytics)
@@ -91,6 +112,19 @@ The generated Excel file contains four comprehensive sheets:
 - **Top legend**: Professional layout with legend at top
 - **Four data series**: Request CPU, Limit CPU, Request Memory, Limit Memory
 - **Cross-sheet references**: Automatically updates with data changes
+
+### Insights Sheet (Data Science Analytics)
+- **Resource efficiency analysis**: Cluster-wide efficiency metrics
+- **Node distribution analysis**: Pod distribution and load balancing
+- **Optimization recommendations**: Actionable insights for resource optimization
+
+### Pod Security Sheet (Security Standards)
+- **Namespace security levels**: Pod Security Standards (PSS) configuration per namespace
+- **Three modes tracked**: Enforce, Audit, and Warn levels
+- **Version information**: PSS version for each mode
+- **Cluster defaults**: Note about unset labels using cluster default configuration
+- **Security levels**: privileged, baseline, or restricted
+- **Compliance overview**: Quick view of cluster security posture
 
 ### Features
 - **Auto-filter**: Easy sorting and filtering on Resources sheet
@@ -103,10 +137,10 @@ The generated Excel file contains four comprehensive sheets:
 - **Pod status filtering**: Only includes Running and Pending pods
 - **Missing resource handling**: Shows "Not Set" for containers without limits/requests
 - **Summary formulas**: Automatic totals in Resources sheet row 1
-  - F1: Total CPU requests (cores)
-  - H1: Total memory requests (Mi)
-  - J1: Total CPU limits (cores)
-  - L1: Total memory limits (Mi)
+  - D1: Total CPU requests (cores, rounded to 2 decimals)
+  - F1: Total memory requests (Mi, rounded to 2 decimals)
+  - H1: Total CPU limits (cores, rounded to 2 decimals)
+  - J1: Total memory limits (Mi, rounded to 2 decimals)
 - **Freeze panes**: Header rows stay visible when scrolling
 - **Optimized column widths**: Properly sized for content readability
 - **Professional charts**: Dedicated chart sheet with dynamic sizing
