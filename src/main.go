@@ -144,7 +144,14 @@ func main() {
 		namespaces = nil
 	}
 
-	if err := generateExcel(pods.Items, namespaces, filename); err != nil {
+	// Fetch nodes for capacity data
+	nodes, err := clientSet.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
+	if err != nil {
+		logrus.Warnf("Failed to list nodes for capacity data: %v", err)
+		nodes = nil
+	}
+
+	if err := generateExcel(pods.Items, namespaces, nodes, filename); err != nil {
 		logrus.Fatalf("Failed to generate Excel file: %v", err)
 	}
 
@@ -202,7 +209,7 @@ func getOutputFilename(output string) string {
 	return fmt.Sprintf("resource_%s.xlsx", time.Now().Format("2006-01-02"))
 }
 
-func generateExcel(pods []corev1.Pod, namespaces *corev1.NamespaceList, filename string) error {
+func generateExcel(pods []corev1.Pod, namespaces *corev1.NamespaceList, nodes *corev1.NodeList, filename string) error {
 	f := excelize.NewFile()
 	defer func() {
 		if err := f.Close(); err != nil {
@@ -269,9 +276,11 @@ func generateExcel(pods []corev1.Pod, namespaces *corev1.NamespaceList, filename
 		reqMem, limMem int64
 	})
 	nodeTotals := make(map[string]struct {
-		podCount       int
-		reqCPU, limCPU int64
-		reqMem, limMem int64
+		podCount         int
+		reqCPU, limCPU   int64
+		reqMem, limMem   int64
+		capCPU, capMem   int64
+		nodeName, nodeIP string
 	})
 
 	row := 3
@@ -296,6 +305,8 @@ func generateExcel(pods []corev1.Pod, namespaces *corev1.NamespaceList, filename
 		}
 		nodeTotal := nodeTotals[node]
 		nodeTotal.podCount++
+		nodeTotal.nodeIP = node
+		nodeTotal.nodeName = pod.Spec.NodeName
 
 		// Calculate pod age
 		podAge := time.Since(pod.CreationTimestamp.Time).Round(time.Second).String()
@@ -507,6 +518,21 @@ func generateExcel(pods []corev1.Pod, namespaces *corev1.NamespaceList, filename
 	// Create summary sheet with charts
 	if err := createSummarySheetFromData(f, namespaceTotals, sheet2Name); err != nil {
 		return fmt.Errorf("failed to create summary sheet: %w", err)
+	}
+
+	// Populate node capacity from nodes list
+	if nodes != nil {
+		for _, node := range nodes.Items {
+			// Match by node name or IP
+			for nodeKey, totals := range nodeTotals {
+				if totals.nodeName == node.Name || nodeKey == getNodeIP(&node) {
+					totals.capCPU = node.Status.Capacity.Cpu().MilliValue()
+					totals.capMem = node.Status.Capacity.Memory().Value()
+					nodeTotals[nodeKey] = totals
+					break
+				}
+			}
+		}
 	}
 
 	// Create node utilization sheet
@@ -755,9 +781,11 @@ func createSummarySheetFromData(f *excelize.File, namespaceTotals map[string]str
 }
 
 func createNodeSheetFromData(f *excelize.File, nodeTotals map[string]struct {
-	podCount       int
-	reqCPU, limCPU int64
-	reqMem, limMem int64
+	podCount         int
+	reqCPU, limCPU   int64
+	reqMem, limMem   int64
+	capCPU, capMem   int64
+	nodeName, nodeIP string
 }, sheetName string) error {
 	_, err := f.NewSheet(sheetName)
 	if err != nil {
@@ -765,7 +793,7 @@ func createNodeSheetFromData(f *excelize.File, nodeTotals map[string]struct {
 	}
 
 	// Set headers
-	headers := []string{"Node IP", "Pod Count", "Request CPU (cores)", "Limit CPU (cores)", "Request Memory (Mi)", "Limit Memory (Mi)"}
+	headers := []string{"Node IP", "Pod Count", "Request CPU (cores)", "Limit CPU (cores)", "Request Memory (Mi)", "Limit Memory (Mi)", "Capacity CPU (cores)", "Capacity Memory (Mi)", "CPU Utilization %", "Memory Utilization %"}
 	if err := f.SetSheetRow(sheetName, "A1", &headers); err != nil {
 		return fmt.Errorf("failed to set headers: %w", err)
 	}
@@ -781,6 +809,17 @@ func createNodeSheetFromData(f *excelize.File, nodeTotals map[string]struct {
 	row := 2
 	for _, node := range sortedNodes {
 		totals := nodeTotals[node]
+		
+		// Calculate utilization percentages
+		cpuUtil := "-"
+		memUtil := "-"
+		if totals.capCPU > 0 {
+			cpuUtil = fmt.Sprintf("%.1f%%", float64(totals.reqCPU)/float64(totals.capCPU)*100)
+		}
+		if totals.capMem > 0 {
+			memUtil = fmt.Sprintf("%.1f%%", float64(totals.reqMem)/float64(totals.capMem)*100)
+		}
+		
 		data := []interface{}{
 			node,
 			totals.podCount,
@@ -788,6 +827,10 @@ func createNodeSheetFromData(f *excelize.File, nodeTotals map[string]struct {
 			float64(totals.limCPU) / 1000,
 			float64(totals.reqMem) / (1024 * 1024),
 			float64(totals.limMem) / (1024 * 1024),
+			float64(totals.capCPU) / 1000,
+			float64(totals.capMem) / (1024 * 1024),
+			cpuUtil,
+			memUtil,
 		}
 
 		cellName, err := excelize.CoordinatesToCellName(1, row)
@@ -802,15 +845,26 @@ func createNodeSheetFromData(f *excelize.File, nodeTotals map[string]struct {
 		// Format memory columns
 		eCell, _ := excelize.CoordinatesToCellName(5, row)
 		fCell, _ := excelize.CoordinatesToCellName(6, row)
+		hCell, _ := excelize.CoordinatesToCellName(8, row)
 		f.SetCellStyle(sheetName, eCell, eCell, getNumberStyle(f))
 		f.SetCellStyle(sheetName, fCell, fCell, getNumberStyle(f))
+		f.SetCellStyle(sheetName, hCell, hCell, getNumberStyle(f))
 
 		row++
 	}
 
 	// Set column widths
 	nodeColumnWidths := map[string]float64{
-		"A": 20, "B": 12, "C": 18, "D": 16, "E": 20, "F": 18,
+		"A": 20, // Node IP
+		"B": 12, // Pod Count
+		"C": 18, // Request CPU
+		"D": 16, // Limit CPU
+		"E": 20, // Request Memory
+		"F": 18, // Limit Memory
+		"G": 20, // Capacity CPU
+		"H": 20, // Capacity Memory
+		"I": 18, // CPU Utilization %
+		"J": 20, // Memory Utilization %
 	}
 
 	for col, width := range nodeColumnWidths {
@@ -938,9 +992,11 @@ func validateAndWarnResources(namespaceTotals map[string]struct {
 	reqCPU, limCPU int64
 	reqMem, limMem int64
 }, nodeTotals map[string]struct {
-	podCount       int
-	reqCPU, limCPU int64
-	reqMem, limMem int64
+	podCount         int
+	reqCPU, limCPU   int64
+	reqMem, limMem   int64
+	capCPU, capMem   int64
+	nodeName, nodeIP string
 }, containerCount int) {
 
 	var warnings []string
@@ -1056,6 +1112,16 @@ func getLabel(labels map[string]string, key string) string {
 	return "-"
 }
 
+// getNodeIP extracts the internal IP from a node
+func getNodeIP(node *corev1.Node) string {
+	for _, addr := range node.Status.Addresses {
+		if addr.Type == corev1.NodeInternalIP {
+			return addr.Address
+		}
+	}
+	return ""
+}
+
 // getQoSClass determines the QoS class for a container
 func getQoSClass(container corev1.Container) string {
 	reqCPU := container.Resources.Requests.Cpu()
@@ -1096,9 +1162,11 @@ func createInsightsSheet(f *excelize.File, namespaceTotals map[string]struct {
 	reqCPU, limCPU int64
 	reqMem, limMem int64
 }, nodeTotals map[string]struct {
-	podCount       int
-	reqCPU, limCPU int64
-	reqMem, limMem int64
+	podCount         int
+	reqCPU, limCPU   int64
+	reqMem, limMem   int64
+	capCPU, capMem   int64
+	nodeName, nodeIP string
 }, sheetName string) error {
 
 	_, err := f.NewSheet(sheetName)
