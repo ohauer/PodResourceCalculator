@@ -52,7 +52,7 @@ make build
 
 ## Excel Output
 
-The generated Excel file contains four comprehensive sheets:
+The generated Excel file contains six comprehensive sheets:
 
 ### Resources Sheet (Detailed Container Data)
 - **Namespace**: Pod namespace
@@ -91,6 +91,19 @@ The generated Excel file contains four comprehensive sheets:
 - **Top legend**: Professional layout with legend at top
 - **Four data series**: Request CPU, Limit CPU, Request Memory, Limit Memory
 - **Cross-sheet references**: Automatically updates with data changes
+
+### Insights Sheet (Data Science Analytics)
+- **Resource efficiency analysis**: Cluster-wide efficiency metrics
+- **Node distribution analysis**: Pod distribution and load balancing
+- **Optimization recommendations**: Actionable insights for resource optimization
+
+### Pod Security Sheet (Security Standards)
+- **Namespace security levels**: Pod Security Standards (PSS) configuration per namespace
+- **Three modes tracked**: Enforce, Audit, and Warn levels
+- **Version information**: PSS version for each mode
+- **Cluster defaults**: Note about unset labels using cluster default configuration
+- **Security levels**: privileged, baseline, or restricted
+- **Compliance overview**: Quick view of cluster security posture
 
 ### Features
 - **Auto-filter**: Easy sorting and filtering on Resources sheet
