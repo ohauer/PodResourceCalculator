@@ -7,6 +7,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"sort"
 	"strings"
@@ -21,6 +22,78 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 )
 
+// Constants for resource processing and efficiency thresholds
+const (
+	// Processing batch sizes
+	ProcessingBatchSize = 50  // Log progress every N pods
+	MemoryLogInterval   = 500 // Log memory usage every N pods
+
+	// Efficiency thresholds (percentage)
+	HighEfficiency   = 80 // Red - high resource utilization
+	MediumEfficiency = 60 // Yellow - medium utilization
+	LowEfficiency    = 40 // Teal - low utilization
+	// Below LowEfficiency = Light green - very low utilization
+
+	// Over/under provisioning thresholds
+	OverProvisionedThreshold  = 50 // Below this = over-provisioned
+	UnderProvisionedThreshold = 80 // Above this = under-provisioned
+
+	// API timeout
+	DefaultAPITimeout = 30 * time.Second
+
+	// Chart dimensions
+	ChartBaseWidth   = 800
+	ChartBaseHeight  = 600
+	ChartWidthScale  = 2.5
+	ChartHeightScale = 3
+	ChartRowHeight   = 60
+	ChartMaxHeight   = 3600
+)
+
+// validatePath checks if a file path is safe from path traversal attacks
+func validatePath(path string) error {
+	if path == "" {
+		return nil
+	}
+	cleanPath := filepath.Clean(path)
+	if strings.Contains(cleanPath, "..") {
+		return fmt.Errorf("path traversal detected: %s", path)
+	}
+	absPath, err := filepath.Abs(cleanPath)
+	if err != nil {
+		return fmt.Errorf("invalid path: %w", err)
+	}
+	dangerousPrefixes := []string{"/etc/", "/sys/", "/proc/", "/dev/"}
+	for _, prefix := range dangerousPrefixes {
+		if strings.HasPrefix(absPath, prefix) {
+			return fmt.Errorf("access to system directories not allowed: %s", path)
+		}
+	}
+	return nil
+}
+
+// validateNamespace checks if a namespace name is valid
+func validateNamespace(namespace string) error {
+	if namespace == "" {
+		return nil // Empty namespace means all namespaces
+	}
+	if len(namespace) > 63 {
+		return fmt.Errorf("namespace too long (max 63 characters)")
+	}
+	validNamespace := regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`)
+	if !validNamespace.MatchString(namespace) {
+		return fmt.Errorf("invalid namespace format: %s", namespace)
+	}
+	return nil
+}
+
+// setCellStyle sets cell style and logs error if it fails
+func setCellStyle(f *excelize.File, sheet, hCell, vCell string, styleID int) {
+	if err := f.SetCellStyle(sheet, hCell, vCell, styleID); err != nil {
+		logrus.Warnf("Failed to set cell style for %s:%s-%s: %v", sheet, hCell, vCell, err)
+	}
+}
+
 func main() {
 	var (
 		namespace  = flag.String("namespace", os.Getenv("K8S_NAMESPACE"), "Kubernetes namespace (default: all namespaces)")
@@ -34,20 +107,43 @@ func main() {
 		logrus.SetLevel(logrus.DebugLevel)
 	}
 
+	// Validate namespace
+	if *namespace != "" {
+		if err := validateNamespace(*namespace); err != nil {
+			logrus.Fatalf("Invalid namespace: %v", err)
+		}
+	}
+
+	// Validate kubeconfig path
+	if *kubeconfig != "" {
+		if err := validatePath(*kubeconfig); err != nil {
+			logrus.Fatalf("Invalid kubeconfig path: %v", err)
+		}
+	}
+
+	// Validate output filename
+	filename := getOutputFilename(*output)
+	if err := validatePath(filename); err != nil {
+		logrus.Fatalf("Invalid output filename: %v", err)
+	}
+
 	clientSet, err := getK8sClient(*kubeconfig)
 	if err != nil {
 		logrus.Fatalf("Failed to connect to Kubernetes: %v", err)
 	}
 
 	logrus.Infof("Fetching pods from namespace: %s", getNamespaceDisplay(*namespace))
-	pods, err := clientSet.CoreV1().Pods(*namespace).List(context.Background(), metav1.ListOptions{})
+	
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	
+	pods, err := clientSet.CoreV1().Pods(*namespace).List(ctx, metav1.ListOptions{})
 	if err != nil {
 		logrus.Fatalf("Failed to list pods: %v", err)
 	}
 
 	logrus.Infof("Found %d pods", len(pods.Items))
 
-	filename := getOutputFilename(*output)
 	if err := generateExcel(pods.Items, filename); err != nil {
 		logrus.Fatalf("Failed to generate Excel file: %v", err)
 	}
@@ -101,7 +197,7 @@ func getNamespaceDisplay(namespace string) string {
 
 func getOutputFilename(output string) string {
 	if output != "" {
-		return output
+		return filepath.Clean(output)
 	}
 	return fmt.Sprintf("resource_%s.xlsx", time.Now().Format("2006-01-02"))
 }
